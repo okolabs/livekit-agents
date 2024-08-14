@@ -110,6 +110,8 @@ class WorkerOptions:
     """Maximum amount of time to wait for a job to shut down gracefully"""
     initialize_process_timeout: float = 10.0
     """Maximum amount of time to wait for a process to initialize/prewarm"""
+    namespace: str = "default"
+    """Namespace for the agent to be in"""
     permissions: WorkerPermissions = field(default_factory=WorkerPermissions)
     """Permissions that the agent should join the room with."""
     worker_type: agent.JobType = agent.JobType.JT_ROOM
@@ -356,7 +358,7 @@ class Worker(utils.EventEmitter[EventTypes]):
                         agent=True,
                     )
                 )
-                req.register.namespace = "default"
+                req.register.namespace = self._opts.namespace
                 req.register.version = __version__
                 await ws.send_bytes(req.SerializeToString())
 
