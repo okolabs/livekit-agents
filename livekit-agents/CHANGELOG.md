@@ -1,5 +1,95 @@
 # livekit-agents
 
+## 0.8.12
+
+### Patch Changes
+
+- tts*forwarder: don't raise inside mark*{audio,text}\_segment_end when nothing was pushed - [#730](https://github.com/livekit/agents/pull/730) ([@theomonnom](https://github.com/theomonnom))
+
+## 0.8.11
+
+### Patch Changes
+
+- improve gracefully_cancel logic - [#720](https://github.com/livekit/agents/pull/720) ([@theomonnom](https://github.com/theomonnom))
+
+- Make ctx.room.name available prior to connection - [#716](https://github.com/livekit/agents/pull/716) ([@davidzhao](https://github.com/davidzhao))
+
+- ipc: add threaded job runner - [#684](https://github.com/livekit/agents/pull/684) ([@theomonnom](https://github.com/theomonnom))
+
+- voiceassistant: add VoiceAssistantState - [#654](https://github.com/livekit/agents/pull/654) ([@lukasIO](https://github.com/lukasIO))
+
+- add JobContext.wait_for_participant - [#712](https://github.com/livekit/agents/pull/712) ([@theomonnom](https://github.com/theomonnom))
+
+- fix non pickleable log - [#691](https://github.com/livekit/agents/pull/691) ([@theomonnom](https://github.com/theomonnom))
+
+- voiceassistant: skip speech initialization if interrupted - [#715](https://github.com/livekit/agents/pull/715) ([@theomonnom](https://github.com/theomonnom))
+
+- bump required livekit version to 0.15.2 - [#722](https://github.com/livekit/agents/pull/722) ([@theomonnom](https://github.com/theomonnom))
+
+- voiceassistant: add will_synthesize_assistant_speech - [#706](https://github.com/livekit/agents/pull/706) ([@theomonnom](https://github.com/theomonnom))
+
+- voiceassistant: fix mark_audio_segment_end with no audio data - [#719](https://github.com/livekit/agents/pull/719) ([@theomonnom](https://github.com/theomonnom))
+
+## 0.8.10
+
+### Patch Changes
+
+- Pass JobContext to participant entrypoint function - [#694](https://github.com/livekit/agents/pull/694) ([@davidzhao](https://github.com/davidzhao))
+
+- voiceassistant: keep punctuations when sending agent transcription - [#648](https://github.com/livekit/agents/pull/648) ([@theomonnom](https://github.com/theomonnom))
+
+## 0.8.9
+
+### Patch Changes
+
+- Introduce easy api for starting tasks for remote participants - [#679](https://github.com/livekit/agents/pull/679) ([@keepingitneil](https://github.com/keepingitneil))
+
+- update livekit to 0.14.0 and await tracksubscribed - [#678](https://github.com/livekit/agents/pull/678) ([@nbsp](https://github.com/nbsp))
+
+## 0.8.8
+
+### Patch Changes
+
+- fix uninitialized SpeechHandle error on interruption - [#665](https://github.com/livekit/agents/pull/665) ([@theomonnom](https://github.com/theomonnom))
+
+- voiceassistant: avoid stacking assistant replies when allow_interruptions=False - [#667](https://github.com/livekit/agents/pull/667) ([@theomonnom](https://github.com/theomonnom))
+
+- fix: disconnect event may now have a arguments - [#668](https://github.com/livekit/agents/pull/668) ([@theomonnom](https://github.com/theomonnom))
+
+- Add ServerMessage.termination handler - [#635](https://github.com/livekit/agents/pull/635) ([@nbsp](https://github.com/nbsp))
+
+## 0.8.7
+
+### Patch Changes
+
+- voiceassistant: fix llm not having the full chat context on bad interruption timing - [#659](https://github.com/livekit/agents/pull/659) ([@theomonnom](https://github.com/theomonnom))
+
+## 0.8.6
+
+### Patch Changes
+
+- voiceassistant: fix will_synthesize_assistant_reply race - [#638](https://github.com/livekit/agents/pull/638) ([@theomonnom](https://github.com/theomonnom))
+
+- Switch Cartesia to a sentence tokenizer and keep the same context id throughout. - [#608](https://github.com/livekit/agents/pull/608) ([@keepingitneil](https://github.com/keepingitneil))
+  Propagate segment_id through the basic sentence tokenizer
+
+- silero: adjust vad activation threshold - [#639](https://github.com/livekit/agents/pull/639) ([@theomonnom](https://github.com/theomonnom))
+
+- limit simultaneous process initialization - [#621](https://github.com/livekit/agents/pull/621) ([@theomonnom](https://github.com/theomonnom))
+
+- voiceassistant: remove fade effect when interrupting #622 - [#623](https://github.com/livekit/agents/pull/623) ([@theomonnom](https://github.com/theomonnom))
+
+- ipc improvements, fix slow shutdown & cleanup leaked resources - [#607](https://github.com/livekit/agents/pull/607) ([@theomonnom](https://github.com/theomonnom))
+
+- ipc: use our own duplex instead of mp.Queue - [#634](https://github.com/livekit/agents/pull/634) ([@theomonnom](https://github.com/theomonnom))
+
+- Support OpenAI Assistants API as a beta feature under `livekit.plugins.openai.beta` - [#601](https://github.com/livekit/agents/pull/601) ([@keepingitneil](https://github.com/keepingitneil))
+  Add \_metadata to ChatCtx and ChatMessage which can be used (in the case of OpenAI assistants) for bookeeping to sync local state with remote, OpenAI state
+
+- llm: fix optional arguments & non-hashable list - [#637](https://github.com/livekit/agents/pull/637) ([@theomonnom](https://github.com/theomonnom))
+
+- silero: fix vad padding & static audio - [#631](https://github.com/livekit/agents/pull/631) ([@theomonnom](https://github.com/theomonnom))
+
 ## 0.8.5
 
 ### Patch Changes

@@ -1,5 +1,32 @@
 # livekit-plugins-openai
 
+## 0.8.3
+
+### Patch Changes
+
+- Introduce function calling to OpenAI Assistants - [#710](https://github.com/livekit/agents/pull/710) ([@keepingitneil](https://github.com/keepingitneil))
+
+- Add Cerebras to OpenAI Plugin - [#731](https://github.com/livekit/agents/pull/731) ([@henrytwo](https://github.com/henrytwo))
+
+## 0.8.2
+
+### Patch Changes
+
+- Add deepseek LLMs at OpenAI plugin - [#714](https://github.com/livekit/agents/pull/714) ([@lenage](https://github.com/lenage))
+
+- skip processing of choice.delta when it is None - [#705](https://github.com/livekit/agents/pull/705) ([@theomonnom](https://github.com/theomonnom))
+
+## 0.8.1
+
+### Patch Changes
+
+- add support for Ollama, Perplexity, Fireworks, Octo, Together, and Groq LLMs through the OpenAI API - [#611](https://github.com/livekit/agents/pull/611) ([@nbsp](https://github.com/nbsp))
+
+- allow sending user IDs - [#633](https://github.com/livekit/agents/pull/633) ([@nbsp](https://github.com/nbsp))
+
+- Support OpenAI Assistants API as a beta feature under `livekit.plugins.openai.beta` - [#601](https://github.com/livekit/agents/pull/601) ([@keepingitneil](https://github.com/keepingitneil))
+  Add \_metadata to ChatCtx and ChatMessage which can be used (in the case of OpenAI assistants) for bookeeping to sync local state with remote, OpenAI state
+
 ## 0.8.0
 
 ### Minor Changes

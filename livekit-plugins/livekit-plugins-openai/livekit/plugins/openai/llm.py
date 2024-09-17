@@ -15,13 +15,12 @@
 from __future__ import annotations
 
 import asyncio
-import base64
+import os
 from dataclasses import dataclass
 from typing import Any, Awaitable, MutableSet
 
 import httpx
-from livekit import rtc
-from livekit.agents import llm, utils
+from livekit.agents import llm
 
 import openai
 from openai.types.chat import ChatCompletionChunk, ChatCompletionMessageParam
@@ -29,18 +28,22 @@ from openai.types.chat.chat_completion_chunk import Choice
 
 from .log import logger
 from .models import (
+    CerebrasChatModels,
     ChatModels,
+    DeepSeekChatModels,
     GroqChatModels,
     OctoChatModels,
     PerplexityChatModels,
     TogetherChatModels,
 )
-from .utils import AsyncAzureADTokenProvider
+from .utils import AsyncAzureADTokenProvider, build_oai_message
 
 
 @dataclass
 class LLMOptions:
     model: str | ChatModels
+    user: str | None
+    temperature: float | None
 
 
 class LLM(llm.LLM):
@@ -50,9 +53,22 @@ class LLM(llm.LLM):
         model: str | ChatModels = "gpt-4o",
         api_key: str | None = None,
         base_url: str | None = None,
+        user: str | None = None,
         client: openai.AsyncClient | None = None,
+        temperature: float | None = None,
     ) -> None:
-        self._opts = LLMOptions(model=model)
+        """
+        Create a new instance of OpenAI LLM.
+
+        ``api_key`` must be set to your OpenAI API key, either using the argument or by setting the
+        ``OPENAI_API_KEY`` environmental variable.
+        """
+        # throw an error on our end
+        api_key = api_key or os.environ.get("OPENAI_API_KEY")
+        if api_key is None:
+            raise ValueError("OpenAI API key is required")
+
+        self._opts = LLMOptions(model=model, user=user, temperature=temperature)
         self._client = client or openai.AsyncClient(
             api_key=api_key,
             base_url=base_url,
@@ -81,6 +97,8 @@ class LLM(llm.LLM):
         organization: str | None = None,
         project: str | None = None,
         base_url: str | None = None,
+        user: str | None = None,
+        temperature: float | None = None,
     ) -> LLM:
         """
         This automatically infers the following arguments from their corresponding environment variables if they are not provided:
@@ -104,7 +122,38 @@ class LLM(llm.LLM):
             base_url=base_url,
         )  # type: ignore
 
-        return LLM(model=model, client=azure_client)
+        return LLM(model=model, client=azure_client, user=user, temperature=temperature)
+
+    @staticmethod
+    def with_cerebras(
+        *,
+        model: str | CerebrasChatModels = "llama3.1-8b",
+        api_key: str | None = None,
+        base_url: str | None = "https://api.cerebras.ai/v1",
+        client: openai.AsyncClient | None = None,
+        user: str | None = None,
+        temperature: float | None = None,
+    ) -> LLM:
+        """
+        Create a new instance of Cerebras LLM.
+
+        ``api_key`` must be set to your Cerebras API key, either using the argument or by setting
+        the ``CEREBRAS_API_KEY`` environmental variable.
+        """
+
+        # shim for not using OPENAI_API_KEY
+        api_key = api_key or os.environ.get("CEREBRAS_API_KEY")
+        if api_key is None:
+            raise ValueError("Cerebras API key is required")
+
+        return LLM(
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
+            client=client,
+            user=user,
+            temperature=temperature,
+        )
 
     @staticmethod
     def with_fireworks(
@@ -113,8 +162,29 @@ class LLM(llm.LLM):
         api_key: str | None = None,
         base_url: str | None = "https://api.fireworks.ai/inference/v1",
         client: openai.AsyncClient | None = None,
+        user: str | None = None,
+        temperature: float | None = None,
     ) -> LLM:
-        return LLM(model=model, api_key=api_key, base_url=base_url, client=client)
+        """
+        Create a new instance of Fireworks LLM.
+
+        ``api_key`` must be set to your Fireworks API key, either using the argument or by setting
+        the ``FIREWORKS_API_KEY`` environmental variable.
+        """
+
+        # shim for not using OPENAI_API_KEY
+        api_key = api_key or os.environ.get("FIREWORKS_API_KEY")
+        if api_key is None:
+            raise ValueError("Fireworks API key is required")
+
+        return LLM(
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
+            client=client,
+            user=user,
+            temperature=temperature,
+        )
 
     @staticmethod
     def with_groq(
@@ -123,8 +193,60 @@ class LLM(llm.LLM):
         api_key: str | None = None,
         base_url: str | None = "https://api.groq.com/openai/v1",
         client: openai.AsyncClient | None = None,
+        user: str | None = None,
+        temperature: float | None = None,
     ) -> LLM:
-        return LLM(model=model, api_key=api_key, base_url=base_url, client=client)
+        """
+        Create a new instance of Groq LLM.
+
+        ``api_key`` must be set to your Groq API key, either using the argument or by setting
+        the ``GROQ_API_KEY`` environmental variable.
+        """
+
+        # shim for not using OPENAI_API_KEY
+        api_key = api_key or os.environ.get("GROQ_API_KEY")
+        if api_key is None:
+            raise ValueError("Groq API key is required")
+
+        return LLM(
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
+            client=client,
+            user=user,
+            temperature=temperature,
+        )
+
+    @staticmethod
+    def with_deepseek(
+        *,
+        model: str | DeepSeekChatModels = "deepseek-chat",
+        api_key: str | None = None,
+        base_url: str | None = "https://api.deepseek.com/v1",
+        client: openai.AsyncClient | None = None,
+        user: str | None = None,
+        temperature: float | None = None,
+    ) -> LLM:
+        """
+        Create a new instance of DeepSeek LLM.
+
+        ``api_key`` must be set to your DeepSeek API key, either using the argument or by setting
+        the ``DEEPSEEK_API_KEY`` environmental variable.
+        """
+
+        # shim for not using OPENAI_API_KEY
+        api_key = api_key or os.environ.get("DEEPSEEK_API_KEY")
+        if api_key is None:
+            raise ValueError("DeepSeek API key is required")
+
+        return LLM(
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
+            client=client,
+            user=user,
+            temperature=temperature,
+        )
 
     @staticmethod
     def with_octo(
@@ -133,8 +255,29 @@ class LLM(llm.LLM):
         api_key: str | None = None,
         base_url: str | None = "https://text.octoai.run/v1",
         client: openai.AsyncClient | None = None,
+        user: str | None = None,
+        temperature: float | None = None,
     ) -> LLM:
-        return LLM(model=model, api_key=api_key, base_url=base_url, client=client)
+        """
+        Create a new instance of OctoAI LLM.
+
+        ``api_key`` must be set to your OctoAI API key, either using the argument or by setting
+        the ``OCTOAI_TOKEN`` environmental variable.
+        """
+
+        # shim for not using OPENAI_API_KEY
+        api_key = api_key or os.environ.get("OCTOAI_TOKEN")
+        if api_key is None:
+            raise ValueError("OctoAI API key is required")
+
+        return LLM(
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
+            client=client,
+            user=user,
+            temperature=temperature,
+        )
 
     @staticmethod
     def with_ollama(
@@ -142,8 +285,19 @@ class LLM(llm.LLM):
         model: str = "llama3.1",
         base_url: str | None = "http://localhost:11434/v1",
         client: openai.AsyncClient | None = None,
+        temperature: float | None = None,
     ) -> LLM:
-        return LLM(model=model, api_key="ollama", base_url=base_url, client=client)
+        """
+        Create a new instance of Ollama LLM.
+        """
+
+        return LLM(
+            model=model,
+            api_key="ollama",
+            base_url=base_url,
+            client=client,
+            temperature=temperature,
+        )
 
     @staticmethod
     def with_perplexity(
@@ -152,8 +306,17 @@ class LLM(llm.LLM):
         api_key: str | None = None,
         base_url: str | None = "https://api.perplexity.ai",
         client: openai.AsyncClient | None = None,
+        user: str | None = None,
+        temperature: float | None = None,
     ) -> LLM:
-        return LLM(model=model, api_key=api_key, base_url=base_url, client=client)
+        return LLM(
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
+            client=client,
+            user=user,
+            temperature=temperature,
+        )
 
     @staticmethod
     def with_together(
@@ -162,8 +325,29 @@ class LLM(llm.LLM):
         api_key: str | None = None,
         base_url: str | None = "https://api.together.xyz/v1",
         client: openai.AsyncClient | None = None,
+        user: str | None = None,
+        temperature: float | None = None,
     ) -> LLM:
-        return LLM(model=model, api_key=api_key, base_url=base_url, client=client)
+        """
+        Create a new instance of TogetherAI LLM.
+
+        ``api_key`` must be set to your TogetherAI API key, either using the argument or by setting
+        the ``TOGETHER_API_KEY`` environmental variable.
+        """
+
+        # shim for not using OPENAI_API_KEY
+        api_key = api_key or os.environ.get("TOGETHER_API_KEY")
+        if api_key is None:
+            raise ValueError("TogetherAI API key is required")
+
+        return LLM(
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
+            client=client,
+            user=user,
+            temperature=temperature,
+        )
 
     @staticmethod
     def create_azure_client(
@@ -178,6 +362,8 @@ class LLM(llm.LLM):
         organization: str | None = None,
         project: str | None = None,
         base_url: str | None = None,
+        user: str | None = None,
+        temperature: float | None = None,
     ) -> LLM:
         logger.warning("This alias is deprecated. Use LLM.with_azure() instead")
         return LLM.with_azure(
@@ -190,6 +376,8 @@ class LLM(llm.LLM):
             organization=organization,
             project=project,
             base_url=base_url,
+            user=user,
+            temperature=temperature,
         )
 
     def chat(
@@ -212,6 +400,10 @@ class LLM(llm.LLM):
             if fnc_ctx and parallel_tool_calls is not None:
                 opts["parallel_tool_calls"] = parallel_tool_calls
 
+        user = self._opts.user or openai.NOT_GIVEN
+        if temperature is None:
+            temperature = self._opts.temperature
+
         messages = _build_oai_context(chat_ctx, id(self))
         cmp = self._client.chat.completions.create(
             messages=messages,
@@ -219,6 +411,7 @@ class LLM(llm.LLM):
             n=n,
             temperature=temperature,
             stream=True,
+            user=user,
             **opts,
         )
 
@@ -262,6 +455,11 @@ class LLMStream(llm.LLMStream):
 
     def _parse_choice(self, choice: Choice) -> llm.ChatChunk | None:
         delta = choice.delta
+
+        # https://github.com/livekit/agents/issues/688
+        # the delta can be None when using Azure OpenAI using content filtering
+        if delta is None:
+            return None
 
         if delta.tool_calls:
             # check if we have functions to calls
@@ -332,77 +530,4 @@ class LLMStream(llm.LLMStream):
 def _build_oai_context(
     chat_ctx: llm.ChatContext, cache_key: Any
 ) -> list[ChatCompletionMessageParam]:
-    return [_build_oai_message(msg, cache_key) for msg in chat_ctx.messages]  # type: ignore
-
-
-def _build_oai_message(msg: llm.ChatMessage, cache_key: Any):
-    oai_msg: dict = {"role": msg.role}
-
-    if msg.name:
-        oai_msg["name"] = msg.name
-
-    # add content if provided
-    if isinstance(msg.content, str):
-        oai_msg["content"] = msg.content
-    elif isinstance(msg.content, list):
-        oai_content = []
-        for cnt in msg.content:
-            if isinstance(cnt, str):
-                oai_content.append({"type": "text", "text": cnt})
-            elif isinstance(cnt, llm.ChatImage):
-                oai_content.append(_build_oai_image_content(cnt, cache_key))
-
-        oai_msg["content"] = oai_content
-
-    # make sure to provide when function has been called inside the context
-    # (+ raw_arguments)
-    if msg.tool_calls is not None:
-        tool_calls: list[dict[str, Any]] = []
-        oai_msg["tool_calls"] = tool_calls
-        for fnc in msg.tool_calls:
-            tool_calls.append(
-                {
-                    "id": fnc.tool_call_id,
-                    "type": "function",
-                    "function": {
-                        "name": fnc.function_info.name,
-                        "arguments": fnc.raw_arguments,
-                    },
-                }
-            )
-
-    # tool_call_id is set when the message is a response/result to a function call
-    # (content is a string in this case)
-    if msg.tool_call_id:
-        oai_msg["tool_call_id"] = msg.tool_call_id
-
-    return oai_msg
-
-
-def _build_oai_image_content(image: llm.ChatImage, cache_key: Any):
-    if isinstance(image.image, str):  # image url
-        return {
-            "type": "image_url",
-            "image_url": {"url": image.image, "detail": "auto"},
-        }
-    elif isinstance(image.image, rtc.VideoFrame):  # VideoFrame
-        if cache_key not in image._cache:
-            # inside our internal implementation, we allow to put extra metadata to
-            # each ChatImage (avoid to reencode each time we do a chatcompletion request)
-            opts = utils.images.EncodeOptions()
-            if image.inference_width and image.inference_height:
-                opts.resize_options = utils.images.ResizeOptions(
-                    width=image.inference_width,
-                    height=image.inference_height,
-                    strategy="center_aspect_fit",
-                )
-
-            encoded_data = utils.images.encode(image.image, opts)
-            image._cache[cache_key] = base64.b64encode(encoded_data).decode("utf-8")
-
-        return {
-            "type": "image_url",
-            "image_url": {"url": f"data:image/jpeg;base64,{image._cache[cache_key]}"},
-        }
-
-    raise ValueError(f"unknown image type {type(image.image)}")
+    return [build_oai_message(msg, cache_key) for msg in chat_ctx.messages]  # type: ignore
