@@ -27,7 +27,11 @@ class VADEvent:
     silence_duration: float
     """duration of the silence in seconds"""
     frames: List[rtc.AudioFrame] = field(default_factory=list)
-    """list of audio frames of the speech"""
+    """list of audio frames of the speech
+
+    start_of_speech: contains the complete audio chunks that triggered the detection)
+    end_of_speech: contains the complete user speech
+    """
     probability: float = 0.0
     """smoothed probability of the speech (only for INFERENCE_DONE event)"""
     inference_duration: float = 0.0
@@ -65,7 +69,7 @@ class VADStream(ABC):
         self._task.add_done_callback(lambda _: self._event_ch.close())
 
     @abstractmethod
-    def _main_task(self) -> None: ...
+    async def _main_task(self) -> None: ...
 
     def push_frame(self, frame: rtc.AudioFrame) -> None:
         """Push some text to be synthesized"""

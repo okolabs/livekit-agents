@@ -7,6 +7,8 @@ DalleModels = Literal["dall-e-2", "dall-e-3"]
 ChatModels = Literal[
     "gpt-4o",
     "gpt-4o-2024-05-13",
+    "gpt-4o-mini",
+    "gpt-4o-mini-2024-07-18",
     "gpt-4-turbo",
     "gpt-4-turbo-2024-04-09",
     "gpt-4-turbo-preview",
@@ -31,7 +33,14 @@ EmbeddingModels = Literal[
     "text-embedding-ada-002", "text-embedding-3-small", "text-embedding-3-large"
 ]
 
+AssistantTools = Literal["code_interpreter", "file_search", "function"]
+
 # adapters for OpenAI-compatible LLMs
+
+CerebrasChatModels = Literal[
+    "llama3.1-8b",
+    "llama3.1-70b",
+]
 
 PerplexityChatModels = Literal[
     "llama-3.1-sonar-small-128k-online",
@@ -54,6 +63,11 @@ GroqChatModels = Literal[
     "mixtral-8x7b-32768",
     "gemma-7b-it",
     "gemma2-9b-it",
+]
+
+DeepSeekChatModels = Literal[
+    "deepseek-coder",
+    "deepseek-chat",
 ]
 
 TogetherChatModels = Literal[

@@ -17,12 +17,15 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import datetime
+import math
 import multiprocessing as mp
 import os
+import sys
 import threading
 from dataclasses import dataclass, field
+from enum import Enum
 from functools import reduce
-from typing import Any, Callable, Coroutine, Literal
+from typing import Any, Awaitable, Callable, Generic, Literal, TypeVar
 from urllib.parse import urljoin, urlparse
 
 import aiohttp
@@ -33,7 +36,14 @@ from livekit.protocol import agent, models
 
 from . import http_server, ipc, utils
 from .exceptions import AssignmentTimeoutError
-from .job import JobAcceptArguments, JobContext, JobProcess, JobRequest, RunningJobInfo
+from .job import (
+    JobAcceptArguments,
+    JobContext,
+    JobExecutorType,
+    JobProcess,
+    JobRequest,
+    RunningJobInfo,
+)
 from .log import DEV_LEVEL, logger
 from .version import __version__
 
@@ -47,6 +57,11 @@ def _default_initialize_process_fnc(proc: JobProcess) -> Any:
 
 async def _default_request_fnc(ctx: JobRequest) -> None:
     await ctx.accept()
+
+
+class WorkerType(Enum):
+    ROOM = agent.JobType.JT_ROOM
+    PUBLISHER = agent.JobType.JT_PUBLISHER
 
 
 class _DefaultLoadCalc:
@@ -89,12 +104,34 @@ class WorkerPermissions:
     hidden: bool = False
 
 
+if sys.platform.startswith("win"):
+    # Some python versions on Windows gets a BrokenPipeError when creating a new process
+    _default_job_executor_type = JobExecutorType.THREAD
+else:
+    _default_job_executor_type = JobExecutorType.PROCESS
+
+
+T = TypeVar("T")
+
+
+@dataclass(frozen=True)
+class _WorkerEnvOption(Generic[T]):
+    dev_default: T
+    prod_default: T
+
+    @staticmethod
+    def getvalue(opt: T | _WorkerEnvOption[T], devmode: bool) -> T:
+        if isinstance(opt, _WorkerEnvOption):
+            return opt.dev_default if devmode else opt.prod_default
+        return opt
+
+
 # NOTE: this object must be pickle-able
 @dataclass
 class WorkerOptions:
-    entrypoint_fnc: Callable[[JobContext], Coroutine]
+    entrypoint_fnc: Callable[[JobContext], Awaitable[None]]
     """Entrypoint function that will be called when a job is assigned to this worker."""
-    request_fnc: Callable[[JobRequest], Coroutine] = _default_request_fnc
+    request_fnc: Callable[[JobRequest], Awaitable[None]] = _default_request_fnc
     """Inspect the request and decide if the current worker should handle it.
 
     When left empty, all jobs are accepted."""
@@ -102,9 +139,18 @@ class WorkerOptions:
     """A function to perform any necessary initialization before the job starts."""
     load_fnc: Callable[[], float] = _DefaultLoadCalc.get_load
     """Called to determine the current load of the worker. Should return a value between 0 and 1."""
-    load_threshold: float = 0.65
-    """When the load exceeds this threshold, the worker will be marked as unavailable."""
-    num_idle_processes: int = 3
+    job_executor_type: JobExecutorType = _default_job_executor_type
+    """Which executor to use to run jobs. (currently thread or process are supported)"""
+    load_threshold: float | _WorkerEnvOption[float] = _WorkerEnvOption(
+        dev_default=math.inf, prod_default=0.75
+    )
+    """When the load exceeds this threshold, the worker will be marked as unavailable.
+    
+    Defaults to 0.75 on "production" mode, and is disabled in "development" mode.
+    """
+    num_idle_processes: int | _WorkerEnvOption[int] = _WorkerEnvOption(
+        dev_default=0, prod_default=3
+    )
     """Number of idle processes to keep warm."""
     shutdown_process_timeout: float = 60.0
     """Maximum amount of time to wait for a job to shut down gracefully"""
@@ -114,7 +160,9 @@ class WorkerOptions:
     """Namespace for the agent to be in"""
     permissions: WorkerPermissions = field(default_factory=WorkerPermissions)
     """Permissions that the agent should join the room with."""
-    worker_type: agent.JobType = agent.JobType.JT_ROOM
+    agent_name: str = ""
+    """Agent name can be used when multiple agents are required to join the same room. The LiveKit SFU will dispatch jobs to unique agent_name workers independently."""
+    worker_type: WorkerType = WorkerType.ROOM
     """Whether to spin up an agent for each room or publisher."""
     max_retry: int = 16
     """Maximum number of times to retry connecting to LiveKit."""
@@ -131,10 +179,13 @@ class WorkerOptions:
 
     By default it uses ``LIVEKIT_API_SECRET`` from environment"""
     host: str = ""  # default to all interfaces
-    port: int = 8081
+    port: int | _WorkerEnvOption[int] = _WorkerEnvOption(
+        dev_default=0, prod_default=8081
+    )
     """Port for local HTTP server to listen on.
 
-    The HTTP server is used as a health check endpoint."""
+    The HTTP server is used as a health check endpoint.
+    """
 
 
 EventTypes = Literal["worker_registered"]
@@ -142,10 +193,14 @@ EventTypes = Literal["worker_registered"]
 
 class Worker(utils.EventEmitter[EventTypes]):
     def __init__(
-        self, opts: WorkerOptions, *, loop: asyncio.AbstractEventLoop | None = None
+        self,
+        opts: WorkerOptions,
+        *,
+        devmode: bool = True,
+        loop: asyncio.AbstractEventLoop | None = None,
     ) -> None:
         super().__init__()
-        opts.ws_url = opts.ws_url or opts.ws_url or os.environ.get("LIVEKIT_URL") or ""
+        opts.ws_url = opts.ws_url or os.environ.get("LIVEKIT_URL") or ""
         opts.api_key = opts.api_key or os.environ.get("LIVEKIT_API_KEY") or ""
         opts.api_secret = opts.api_secret or os.environ.get("LIVEKIT_API_SECRET") or ""
 
@@ -173,6 +228,7 @@ class Worker(utils.EventEmitter[EventTypes]):
         self._pending_assignments: dict[str, asyncio.Future[agent.JobAssignment]] = {}
         self._close_future: asyncio.Future[None] | None = None
         self._msg_chan = utils.aio.Chan[agent.WorkerMessage](128, loop=self._loop)
+        self._devmode = devmode
 
         # using spawn context for all platforms. We may have further optimizations for
         # Linux with forkserver, but for now, this is the safest option
@@ -180,8 +236,11 @@ class Worker(utils.EventEmitter[EventTypes]):
         self._proc_pool = ipc.proc_pool.ProcPool(
             initialize_process_fnc=opts.prewarm_fnc,
             job_entrypoint_fnc=opts.entrypoint_fnc,
-            num_idle_processes=opts.num_idle_processes,
+            num_idle_processes=_WorkerEnvOption.getvalue(
+                opts.num_idle_processes, self._devmode
+            ),
             loop=self._loop,
+            job_executor_type=opts.job_executor_type,
             mp_ctx=mp_ctx,
             initialize_timeout=opts.initialize_process_timeout,
             close_timeout=opts.shutdown_process_timeout,
@@ -190,10 +249,12 @@ class Worker(utils.EventEmitter[EventTypes]):
         self._api: api.LiveKitAPI | None = None
         self._http_session: aiohttp.ClientSession | None = None
         self._http_server = http_server.HttpServer(
-            opts.host, opts.port, loop=self._loop
+            opts.host,
+            _WorkerEnvOption.getvalue(opts.port, self._devmode),
+            loop=self._loop,
         )
 
-        self._main_task: asyncio.Task | None = None
+        self._main_task: asyncio.Task[None] | None = None
 
     async def run(self):
         if not self._closed:
@@ -346,7 +407,7 @@ class Worker(utils.EventEmitter[EventTypes]):
 
                 # register the worker
                 req = agent.WorkerMessage()
-                req.register.type = self._opts.worker_type
+                req.register.type = self._opts.worker_type.value
                 req.register.allowed_permissions.CopyFrom(
                     models.ParticipantPermission(
                         can_publish=self._opts.permissions.can_publish,
@@ -409,7 +470,9 @@ class Worker(utils.EventEmitter[EventTypes]):
                     None, self._opts.load_fnc
                 )
 
-                is_full = current_load >= self._opts.load_threshold
+                is_full = current_load >= _WorkerEnvOption.getvalue(
+                    self._opts.load_threshold, self._devmode
+                )
                 currently_available = not is_full and not self._draining
 
                 current_status = (
@@ -479,6 +542,13 @@ class Worker(utils.EventEmitter[EventTypes]):
                     self._handle_availability(msg.availability)
                 elif which == "assignment":
                     self._handle_assignment(msg.assignment)
+                elif which == "termination":
+                    user_task = self._loop.create_task(
+                        self._handle_termination(msg.termination),
+                        name="agent_job_termination",
+                    )
+                    self._tasks.add(user_task)
+                    user_task.add_done_callback(self._tasks.discard)
 
         tasks = [
             asyncio.create_task(_load_task()),
@@ -492,7 +562,11 @@ class Worker(utils.EventEmitter[EventTypes]):
 
     async def _reload_jobs(self, jobs: list[RunningJobInfo]) -> None:
         for aj in jobs:
-            logger.log(DEV_LEVEL, "reloading job", extra={"job_id": aj.job.id})
+            logger.log(
+                DEV_LEVEL,
+                "reloading job",
+                extra={"job_id": aj.job.id, "agent_name": aj.job.agent_name},
+            )
             url = self._opts.ws_url
 
             # take the original jwt token and extend it while keeping all the same data that was generated
@@ -561,7 +635,7 @@ class Worker(utils.EventEmitter[EventTypes]):
             except asyncio.TimeoutError:
                 logger.warning(
                     f"assignment for job {job_req.id} timed out",
-                    extra={"job_request": job_req},
+                    extra={"job_request": job_req, "agent_name": self._opts.agent_name},
                 )
                 raise AssignmentTimeoutError()
 
@@ -579,7 +653,11 @@ class Worker(utils.EventEmitter[EventTypes]):
 
         logger.info(
             "received job request",
-            extra={"job_request": msg.job, "resuming": msg.resuming},
+            extra={
+                "job_request": msg.job,
+                "resuming": msg.resuming,
+                "agent_name": self._opts.agent_name,
+            },
         )
 
         @utils.log_exceptions(logger=logger)
@@ -588,13 +666,14 @@ class Worker(utils.EventEmitter[EventTypes]):
                 await self._opts.request_fnc(job_req)
             except Exception:
                 logger.exception(
-                    "job_request_fnc failed", extra={"job_request": job_req}
+                    "job_request_fnc failed",
+                    extra={"job_request": job_req, "agent_name": self._opts.agent_name},
                 )
 
             if not answered:
                 logger.warning(
                     "no answer was given inside the job_request_fnc, automatically rejecting the job",
-                    extra={"job_request": job_req},
+                    extra={"job_request": job_req, "agent_name": self._opts.agent_name},
                 )
                 await _on_reject()
 
@@ -609,5 +688,13 @@ class Worker(utils.EventEmitter[EventTypes]):
                 fut.set_result(assignment)
         else:
             logger.warning(
-                "received assignment for an unknown job", extra={"job": assignment.job}
+                "received assignment for an unknown job",
+                extra={"job": assignment.job, "agent_name": self._opts.agent_name},
             )
+
+    async def _handle_termination(self, msg: agent.JobTermination):
+        proc = self._proc_pool.get_by_job_id(msg.job_id)
+        if not proc:
+            # safe to ignore
+            return
+        await proc.aclose()
