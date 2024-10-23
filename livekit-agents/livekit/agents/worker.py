@@ -420,6 +420,7 @@ class Worker(utils.EventEmitter[EventTypes]):
                     )
                 )
                 req.register.namespace = self._opts.namespace
+                req.register.agent_name = self._opts.agent_name
                 req.register.version = __version__
                 await ws.send_bytes(req.SerializeToString())
 
